@@ -10,12 +10,16 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.IO;
 using System.Xml.Serialization;
+using C2CWindowsDesktopClient.WebServices;
+using C2CWindowsDesktopClient.ServerCallClasses;
 
 namespace C2CWindowsDesktopClient
 {
     public partial class Notifier : Form
     {
         Configuration configuration = null;
+        C2CServiceClient m_Client = null;
+        ClientInfo m_ClientInfo;
 
         public Notifier()
         {
@@ -23,12 +27,45 @@ namespace C2CWindowsDesktopClient
             LoadConfiguration();
 
             clipboardMonitor.ClipboardChanged += clipboardMonitor_ClipboardChanged;
-            this.Load += Notifier_Load;
+            this.RegisterClient();
+            clipboardMonitor.Start();
         }
 
-        void Notifier_Load(object sender, EventArgs e)
+
+        private void RegisterClient()
         {
-            clipboardMonitor.Start();
+            if ((m_Client != null))
+            {
+                m_Client.Abort();
+                m_Client = null;
+            }
+
+            BroadcastorCallback cb = new BroadcastorCallback();
+            cb.SetHandler(this.HandleBroadcast);
+
+            System.ServiceModel.InstanceContext context =
+                new System.ServiceModel.InstanceContext(cb);
+            m_Client = new C2CServiceClient(context);
+
+            m_ClientInfo = new ClientInfo()
+            {
+                C2CID = Convert.ToInt64(1),
+                Name = "Hello Mr.",
+                LoginID = "mr@testing.com",
+                MacAddress = Utils.Helpers.GetMacAddress().ToString(),
+            };
+
+            m_Client.RegisterClient(m_ClientInfo);
+        }
+
+        private delegate void HandleBroadcastCallback(object sender, EventArgs e);
+        public void HandleBroadcast(object sender, EventArgs e)
+        {
+            CopiedDetails eventData = sender as CopiedDetails;
+            if (eventData != null)
+            {
+                Clipboard.SetText(eventData.Text);
+            }
         }
 
         #region UI Handlers
@@ -78,6 +115,13 @@ namespace C2CWindowsDesktopClient
                     if (Clipboard.ContainsText())
                     {
                         CurrentString = e.DataObject.GetData(typeof(string)) as String;
+
+                        CopiedDetails copyDetails = new CopiedDetails();
+                        copyDetails.C2CID = m_ClientInfo.C2CID;
+                        copyDetails.MacAddress = m_ClientInfo.MacAddress;
+                        copyDetails.Text = CurrentString;
+
+                        m_Client.PostToServerAsync(copyDetails);
                     }
                 }
             }
